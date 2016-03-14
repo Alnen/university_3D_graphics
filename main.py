@@ -1,4 +1,7 @@
-from vispy import app, visuals, scene, geometry, util
+from vispy import app, visuals, scene, geometry, util, gloo
+from vispy.app.canvas import DrawEvent
+from vispy.gloo.util import _screenshot
+from moviepy.editor import VideoClip
 import numpy as np
 import math
 import typing
@@ -16,6 +19,10 @@ class Canvas(scene.SceneCanvas):
     def on_draw(self, event):
         self.transform_function(self.view.scene.children)
         scene.SceneCanvas.on_draw(self, event)
+
+    def animation(self, t):
+        self.on_draw(DrawEvent('draw'))
+        return _screenshot((0, 0, self.size[0], self.size[1]))[:, :, :3]
 
 
 def get_rotation_matrix(*, start_point: np.ndarray, end_point: typing.Any) -> np.ndarray:
@@ -294,7 +301,7 @@ class Rotator:
 
 
 if __name__ == '__main__':
-    rotator = Rotator(object_normal_list=[(2, (1, 1, 0)), (3, (0, 0, 1))], angle_in_second=10)
+    rotator = Rotator(object_normal_list=[(2, (1, 1, 0)), (3, (0, 0, 1))], angle_in_second=20)
 
     canvas = Canvas(rotator.transform, keys='interactive', show=True, app='pyqt5')
 
@@ -307,3 +314,6 @@ if __name__ == '__main__':
     torus.parent = canvas.view.scene
 
     app.run()
+
+    clip = VideoClip(canvas.animation, duration=5).resize(0.3)
+    clip.write_gif('lab1.gif', fps=24, opt='OptimizePlus')
