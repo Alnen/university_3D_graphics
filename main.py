@@ -42,6 +42,7 @@ def get_rotation_matrix(*, start_point: np.ndarray, end_point: typing.Any) -> np
         end_point_length = np.linalg.norm(end_point)
         cos_theta = np.dot(start_point, end_point)/(start_point_length*end_point_length)
         theta = math.acos(cos_theta)
+
         A = np.array([[    0, -x[2],  x[1]],
                       [ x[2],     0, -x[0]],
                       [-x[1],  x[0],    0]],
@@ -69,7 +70,7 @@ def truncated_icosahedron_data():
     cylinder_radius = 0.25 * sphere_radius
     cylinder_rows = 10
     cylinder_cols = 10
-    color = (1, 0.6, 0)
+    color = (1.0, 0.725, 0.275)
 
     truncated_icosahedron_vertices_coordinates = np.array(
         [
@@ -159,14 +160,14 @@ def truncated_icosahedron_data():
             color)
 
 
-def torus_data(rows, cols):
+def torus_data(rows=30, cols=15):
     sphere_radius = 0.1
     sphere_rows = 10
     sphere_cols = 10
     cylinder_radius = 0.25 * sphere_radius
     cylinder_rows = 10
     cylinder_cols = 10
-    color = 'green'
+    color = (0.1, 0.6, 0.1)
 
     def torus_vertices_coordinates_generator():
         torus_global_radius = 8
@@ -300,8 +301,70 @@ class Rotator:
             objects[index].transform.transforms[1].rotate(self.velocity_per_frame, normal)
 
 
+def generate_pov_ray_script(data_generators):
+    def vertex_to_string(elem):
+        return "    <{}, {}, {}>".format(elem[0], elem[1], elem[2])
+
+    def edge_to_string(elem):
+        return "    <{}, {}>".format(elem[0], elem[1])
+
+    def transform_verticies(vertices, transform_matrix):
+        for vertex in vertices:
+            yield np.dot(vertex, transform_matrix)
+    array_declaration_template = "#declare {} = array[{}]\n{{\n{}\n}}\n"
+    variable_declaration_template = "#declare {} = {};\n"
+
+    output = ""
+    for data_generator, name, transform_matrix in data_generators:
+        vertices, edges,  sphere_radius, cylinder_radius, _, _, _, _, _ = data_generator()
+        output += variable_declaration_template.format("{}_sphere_radius".format(name), sphere_radius)
+        output += variable_declaration_template.format("{}_cylinder_radius".format(name), cylinder_radius)
+
+        vertices_generator = transform_verticies(vertices, transform_matrix)
+        array_content, element_count = transform_data_to_povray_array_data(vertices_generator, vertex_to_string)
+        output += variable_declaration_template.format("{}_vertices_count".format(name), element_count)
+        output += array_declaration_template.format("{}_vertices".format(name), element_count, array_content)
+
+        array_content, element_count = transform_data_to_povray_array_data(edges, edge_to_string)
+        output += variable_declaration_template.format("{}_edges_count".format(name), element_count)
+        output += array_declaration_template.format("{}_edges".format(name), element_count, array_content)
+
+    return output
+
+
+def transform_data_to_povray_array_data(vertices, element_to_string):
+    count = 0
+
+    def generator_element_counter(element):
+        nonlocal count
+        count += 1
+        return element_to_string(element)
+
+    array_content = ',\n'.join(generator_element_counter(vertex) for vertex in vertices)
+    return array_content, count
+
+
+def calculate_t_gold_2a_material():
+    gold_base_color = np.array((1.00, 0.875, 0.575))
+    diffuse_base_color = gold_base_color - np.array((0.00, 0.20, 0.40))
+    color = gold_base_color - np.array((0.00, 0.15, 0.30))
+
+    reflection_color = diffuse_base_color * 0.30 + np.array((0.25, 0.25, 0.25))
+    ambient_color = diffuse_base_color * 0.12 + np.array((0.1, 0.1, 0.1))
+
+    diffuse_coefficient = 1-(((reflection_color[0] + reflection_color[1] + reflection_color[2])/3)
+                             + ((ambient_color[0] + ambient_color[1] + ambient_color[2])/3))
+    diffuse_coefficient = max(diffuse_coefficient, 0)
+
+    metallic = 1.0
+    specular = 0.20
+    roughness = 1.0/20.0
+
+    return color, diffuse_coefficient, metallic, specular, roughness
+
+
 if __name__ == '__main__':
-    rotator = Rotator(object_normal_list=[(2, (1, 1, 0)), (3, (0, 0, 1))], angle_in_second=20)
+    rotator = Rotator(object_normal_list=[(2, (1, 1, 0)), (3, (1, 0, 0))], angle_in_second=20)
 
     canvas = Canvas(rotator.transform, keys='interactive', show=True, app='pyqt5')
 
@@ -313,7 +376,15 @@ if __name__ == '__main__':
     torus = generate_move_rotate_transform_chain_wrapper(torus)
     torus.parent = canvas.view.scene
 
+    pov_ray_arrays_declaration = generate_pov_ray_script([
+        (truncated_icosahedron_data, 'truncated_icosahedron', util.transforms.rotate(70, (1, 0, 1))[:3, :3]),
+        (torus_data, 'torus', util.transforms.rotate(70, (1, 0, 1))[:3, :3]@util.transforms.rotate(-70, (0, 1, 0))[:3, :3])
+    ])
+
+    output_file = open('lab2_data.inc', 'w')
+    output_file.write(pov_ray_arrays_declaration)
+
     app.run()
 
-    clip = VideoClip(canvas.animation, duration=5).resize(0.3)
-    clip.write_gif('lab1.gif', fps=24, opt='OptimizePlus')
+    #clip = VideoClip(canvas.animation, duration=5).resize(0.3)
+    #clip.write_gif('lab1.gif', fps=24, opt='OptimizePlus')
